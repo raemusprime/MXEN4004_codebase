@@ -1,10 +1,12 @@
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
+#include <Preferences.h>
 #include <Wire.h>
 #include <Adafruit_INA228.h>
+#include <time.h>
 
-// BLE Service and Characteristic UUIDs
+// BLE UUIDs
 #define SERVICE_UUID "12345678-1234-1234-1234-1234567890ab"
 #define CHARACTERISTIC_UUID "87654321-4321-4321-4321-ba0987654321"
 
@@ -13,45 +15,111 @@ BLEServer* pServer = nullptr;
 BLEService* pService = nullptr;
 BLECharacteristic* pCharacteristic = nullptr;
 
-// INA228 object
+// INA228
 Adafruit_INA228 ina228 = Adafruit_INA228();
 bool ina228Available = false;
-// Counter
-int pingCounter = 0;
 
-// Read INA228 measurements
-String readINA228() {
-  float busVoltage = ina228.readBusVoltage();    // in Volts
-  float current = ina228.getCurrent_mA();          // in milliAmps
-  float power = ina228.readPower();              // in Watts
-  String csvData = String(busVoltage, 8) + "," +
-                   String(current, 8) + "," +
-                   String(power, 8);
-  return csvData;
+// Logging (FIFO in NVS)
+Preferences prefs;
+const int LOG_SIZE = 100;
+int logIndex = 0;
+
+// Configurable parameters
+int sampleRate = 10;     // Hz
+int duration = 30;       // seconds
+
+// CSV data buffer
+String csvData;
+
+// Store diagnostic log entry
+void logMessage(const String& msg) {
+  String key = "log" + String(logIndex % LOG_SIZE);
+  prefs.putString(key.c_str(), msg);
+  logIndex++;
 }
 
-// BLE callbacks
-class MyCallbacks: public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *pCharacteristic) {
+// Read all logs
+String dumpLogs() {
+  String logs = "";
+  for (int i = 0; i < LOG_SIZE; i++) {
+    String key = "log" + String(i);
+    String entry = prefs.getString(key.c_str(), "");
+    if (entry.length() > 0) {
+      logs += entry + "\n";
+    }
+  }
+  return logs;
+}
+
+// BLE Callbacks
+class MyCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* pCharacteristic) {
     String value = pCharacteristic->getValue();
     if (value.length() > 0) {
-      if (Serial) {
-        Serial.print("Received: ");
-        Serial.println(value.c_str());
-      }
+      Serial.println("Received: " + value);
+      logMessage("BLE RX: " + value);
 
       if (value == "ping") {
-        float tempC = temperatureRead();  // ESP32 internal temperature
-        pingCounter++;
-        String response = "Hello World! Temp: " + String(tempC, 2) +
-                          " C, Count: " + String(pingCounter) +
-                          ", Time(ms): " + String(millis());
+        String response = "pong";
         pCharacteristic->setValue(response.c_str());
         pCharacteristic->notify();
-      } 
-      else if (value == "read_ina") {
-        String csvData = readINA228();
+      }
+      else if (value.startsWith("read_ina")) {
+        // Start CSV streaming
+        csvData = "";
+        unsigned long startTime = millis();
+        int samples = sampleRate * duration;
+        for (int i = 0; i < samples; i++) {
+          float v = ina228.readBusVoltage();
+          float c = ina228.getCurrent_mA();
+          float p = ina228.readPower();
+          csvData += String(v, 8) + "," + String(c, 8) + "," + String(p, 8) + "\n";
+          delay(1000 / sampleRate);
+        }
         pCharacteristic->setValue(csvData.c_str());
+        pCharacteristic->notify();
+      }
+      else if (value.startsWith("set_sample_rate")) {
+        int comma = value.indexOf(',');
+        if (comma > 0) {
+          sampleRate = value.substring(comma + 1).toInt();
+          logMessage("Sample rate set to: " + String(sampleRate));
+          pCharacteristic->setValue("Sample rate updated.");
+          pCharacteristic->notify();
+        }
+      }
+      else if (value.startsWith("set_duration")) {
+        int comma = value.indexOf(',');
+        if (comma > 0) {
+          duration = value.substring(comma + 1).toInt();
+          logMessage("Duration set to: " + String(duration));
+          pCharacteristic->setValue("Duration updated.");
+          pCharacteristic->notify();
+        }
+      }
+      else if (value.startsWith("set_time")) {
+        int comma = value.indexOf(',');
+        if (comma > 0) {
+          String timeStr = value.substring(comma + 1);
+          struct tm tmTime;
+          memset(&tmTime, 0, sizeof(tmTime));
+          if (sscanf(timeStr.c_str(), "%d-%d-%d %d:%d:%d",
+                     &tmTime.tm_year, &tmTime.tm_mon, &tmTime.tm_mday,
+                     &tmTime.tm_hour, &tmTime.tm_min, &tmTime.tm_sec) == 6) {
+            tmTime.tm_year -= 1900;
+            tmTime.tm_mon -= 1;
+            time_t t = mktime(&tmTime);
+            struct timeval now = { .tv_sec = t, .tv_usec = 0 };
+            settimeofday(&now, nullptr);
+            logMessage("Time updated via BLE.");
+            pCharacteristic->setValue("Time updated.");
+            pCharacteristic->notify();
+          }
+        }
+      }
+      else if (value == "dump_logs") {
+        String logs = dumpLogs();
+        pCharacteristic->setValue(logs.c_str());
         pCharacteristic->notify();
       }
     }
@@ -59,23 +127,23 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 };
 
 void setup() {
-  if (Serial) Serial.begin(115200);
-  delay(1000);
-  if (Serial) {
-    Serial.println("Starting BLE work!");
-  }
+  Serial.begin(115200);
+  while (!Serial) delay(10);
 
-  // Initialize INA228
+  prefs.begin("diagnostics", false);
+  logIndex = prefs.getInt("logIndex", 0);
+
+  logMessage("Startup log: ESP32 booted.");
+
   if (!ina228.begin()) {
-    Serial.println("⚠️ INA228 not found. Continuing without INA228 support.");
+    Serial.println("INA228 not found.");
     ina228Available = false;
   } else {
-    Serial.println("INA228 Initialized!");
     ina228.setShunt(0.015, 10.0);
     ina228Available = true;
+    logMessage("INA228 initialized.");
   }
 
-  // Initialize BLE
   BLEDevice::init("ESP32_BLE_Server");
   pServer = BLEDevice::createServer();
   pService = pServer->createService(SERVICE_UUID);
@@ -94,9 +162,9 @@ void setup() {
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->start();
 
-  Serial.println("BLE Service started, waiting for client connection...");
+  Serial.println("BLE service started.");
 }
 
 void loop() {
-  // Nothing to do here, BLE callbacks handle everything
+  // BLE handled in callbacks
 }
