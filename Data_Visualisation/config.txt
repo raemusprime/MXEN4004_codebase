@@ -1,0 +1,7 @@
+s3_device_name=ESP32_S3_PPG
+power_device_name=ESP32_PPG_POWER
+wifi_ssid=In SSID ya home
+wifi_password=Squidge&NuggetHome18
+tcp_server_ip=192.168.50.52
+tcp_server_port=5000
+ppg_files=PPG_1.csv,PPG_2.csv,PPG_3.csv,PPG_4.csv,PPG_5.csv,PPG_6.csv,PPG_7.csv,PPG_8.csv

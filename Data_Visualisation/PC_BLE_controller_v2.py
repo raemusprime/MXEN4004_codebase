@@ -48,7 +48,7 @@ class ESP32GUI:
         
     def load_config(self):
         """Load configuration from config.txt."""
-        config_file = 'config.txt'
+        config_file = 'U:\VS_Code_local_git\MXEN4004_codebase\MXEN4004_codebase\Data_Visualisation'
         if not os.path.exists(config_file):
             self.status_text.insert(tk.END, f"Config file {config_file} not found. Using defaults.\n")
             self.status_text.see(tk.END)

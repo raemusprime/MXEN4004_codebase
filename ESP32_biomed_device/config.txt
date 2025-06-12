@@ -1,7 +1,0 @@
-s3_device_name=ESP32_S3_PPG
-power_device_name=ESP32_PPG_POWER
-wifi_ssid=YourWiFiSSID
-wifi_password=YourWiFiPassword
-tcp_server_ip=192.168.1.100
-tcp_server_port=5000
-ppg_files=ppg_1.csv,ppg_2.csv,ppg_3.csv,ppg_4.csv,ppg_5.csv,ppg_6.csv,ppg_7.csv,ppg_8.csv

@@ -7,7 +7,7 @@
 
 // Constants
 #define INA228_ADDR 0x40
-#define SYNC_PIN 15
+#define SYNC_PIN 4
 #define SDA_PIN 21
 #define SCL_PIN 22
 #define SAMPLE_RATE_HZ 100

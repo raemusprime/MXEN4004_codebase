@@ -9,7 +9,7 @@
 // Constants
 #define DELAY_MS 5000        // Delay between compression and transmission (5s)
 #define CHUNK_SIZE 20        // BLE chunk size for data transmission
-#define SYNC_PIN 6           // GPIO pin to signal CP2102 for power logging
+#define SYNC_PIN 10           // GPIO pin to signal CP2102 for power logging
 #define BUFFER_SIZE 512      // Buffer size for file operations
 #define MAX_HUFFMAN_NODES 512 // Max nodes for Huffman tree
 
